@@ -24,6 +24,7 @@ matrix:
       os: osx
       sudo: false
       before_install:
+        - travis_wait softwareupdate -i -a
         - brew update
         - brew cask uninstall --force oclint # See https://github.com/travis-ci/travis-ci/issues/8826 for details.
         - brew install gcc@6
@@ -48,6 +49,7 @@ matrix:
       os: osx
       sudo: false
       before_install:
+        - travis_wait softwareupdate -i -a
         - brew update
         - brew install llvm@4
         - brew install libomp
