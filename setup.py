@@ -4,6 +4,7 @@ import shutil
 import sys
 import sysconfig
 import os
+import numpy
 
 cmakeCompiler = None
 buildDirectory = "build/build_python"
@@ -134,7 +135,7 @@ def cythonizeFile(filepath):
 		if not os.path.isfile(filepath):
 			print("_NetworKit.pyx is not available. Build cancelled.")
 			exit(1)
-		comp_cmd = ["cython","-3","--cplus","-t",filepath]
+		comp_cmd = ["cython","-3","--cplus","-t",filepath,"-I",numpy.get_include()]
 		if not subprocess.call(comp_cmd) == 0:
 			print("cython returned an error, exiting setup.py")
 			exit(1)
@@ -156,6 +157,8 @@ def buildNetworKit(install_prefix, externalCore=False, withTests=False, rpath=No
 	from sysconfig import get_paths, get_config_var
 	comp_cmd.append("-DNETWORKIT_PYTHON="+get_paths()['include']) #provide python.h files
 	comp_cmd.append("-DNETWORKIT_PYTHON_SOABI="+get_config_var('SOABI')) #provide lib env specification
+	# Numpy include path
+	comp_cmd.append("-DNUMPY_INCLUDE_DIR="+numpy.get_include())
 	if externalCore:
 		comp_cmd.append("-DNETWORKIT_BUILD_CORE=OFF")
 	if ninja_available:
@@ -315,7 +318,8 @@ setup(
 	platforms			= version.platforms,
 	classifiers			= version.classifiers,
 	cmdclass			= {'build_ext': build_ext},
-	ext_modules			= [Extension('_NetworKit', sources=[])],
+	include_dirs		= [numpy.get_include()],
+	ext_modules			= [Extension('_NetworKit', sources=[], include_dirs=[numpy.get_include()])],
 	test_suite			= 'nose.collector',
 	install_requires	= version.install_requires,
 	zip_safe			= False) # see https://cython.readthedocs.io/en/latest/src/reference/compilation.html

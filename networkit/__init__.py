@@ -95,7 +95,7 @@ except ImportError:
 # TODO: introduce settings module
 
 # extension imports
-from _NetworKit import getLogLevel, setLogLevel, setPrintLocation, enableNestedParallelism, setNumberOfThreads, getCurrentNumberOfThreads, getMaxNumberOfThreads, none, setSeed
+from _NetworKit import getLogLevel, setLogLevel, setPrintLocation, enableNestedParallelism, setNumberOfThreads, getCurrentNumberOfThreads, getMaxNumberOfThreads, none, setSeed, meta_path_to_index, meta_path_from_index
 
 # local imports into the top namespace
 from .graph import Graph

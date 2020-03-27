@@ -17,6 +17,16 @@ except:
 	warnings.warn("WARNING: module 'pandas' not found, some functionality will be restricted",
 			ReducedFunctionalityWarning)
 
+try:
+	import numpy as np
+	cimport numpy as np
+except:
+	warnings.warn("WARNING: module 'numpy' not found, some functionality will be restricted",
+			ReducedFunctionalityWarning)
+
+cimport cython
+NODE_DTYPE = np.uint64
+ctypedef np.uint64_t NODE_DTYPE_t
 
 # C++ operators
 from cython.operator import dereference, preincrement
@@ -85,6 +95,32 @@ def pystring(stdstring):
 	""" convert a std::string (= python byte string) to a normal Python string"""
 	return stdstring.decode("utf-8")
 
+def meta_path_to_index(int p, int n):
+	cdef uint8_t a, b
+	a = p
+	b = n
+
+	return _meta_path_to_index(a, b)
+
+cdef _meta_path_to_index(uint8_t a, uint8_t b):
+	cdef index i = 0
+	i = i | a
+	i = i << 8
+	i = i | b
+	return i
+
+cdef _meta_path_from_index(index i):
+	cdef char[3] mp
+
+	mp[0] = (i >> 8) & 255
+	mp[1] = i & 255
+	mp[2] = b'\0'
+
+	return mp
+
+def meta_path_from_index(index i):
+	mp = _meta_path_from_index(i)
+	return str(mp)
 
 cdef extern from "<networkit/base/Algorithm.hpp>":
 
@@ -5333,6 +5369,128 @@ cdef class GraphTools:
 			A random neighbor of `u`.
 		"""
 		return randomNeighbor(G._this, u)
+
+	@staticmethod
+	def randomWalk(Graph G, node u, int length):
+		"""
+		Returns a list of random walks from node `u`.
+
+		Parameters
+		----------
+		G : networkit.Graph
+			The input graph.
+		u : node
+			A node in `G`.
+		length : int
+			Random walk length
+
+		Returns
+		-------
+		List[node]
+			A list of random walks from `u`.
+		"""
+		cdef int i
+
+		if length < 1:
+			raise RuntimeError("Parameter length should be >= 1.")
+
+		walk = [u]
+
+		for i in range(length - 1):
+			u = randomNeighbor(G._this, u)
+			walk.append(u)
+
+		return walk
+
+	@staticmethod
+	@cython.boundscheck(False)
+	@cython.wraparound(False)
+	def randomWalkNumPy(Graph G, node start, node end, int length):
+		"""
+		Returns a 2d array of random walks from node `start` to `end`.
+
+		Parameters
+		----------
+		G : networkit.Graph
+			The input graph.
+		start : node
+			A node index in `G`.
+		end : node
+			A node index in `G`.
+		length : int
+			Random walk length
+
+		Returns
+		-------
+		np.ndarray[np.int64, ndim=2]
+			2D-Numpy array of random walks starting from [start, ..., end]
+		"""
+		cdef u
+		cdef rows = end - start
+
+		if length < 1:
+			raise RuntimeError("Parameter length should be >= 1.")
+		if start > end:
+			raise RuntimeError("Start should be less equal than end.")
+
+		cdef np.ndarray[NODE_DTYPE_t, ndim=2] walks = np.zeros([rows, length], dtype=NODE_DTYPE)
+
+		for r in range(rows):
+			u = start + r
+			for c in range(length):
+				walks[r, c] = u
+				u = randomNeighbor(G._this, u)
+
+		return walks
+
+	@staticmethod
+	@cython.boundscheck(False)
+	@cython.wraparound(False)
+	def getMetaPaths(bytes class_map, np.ndarray[NODE_DTYPE_t, ndim=2] paths):
+		"""
+		Returns a 2d array of random walks from node `start` to `end`.
+
+		Parameters
+		----------
+		G : networkit.Graph
+			The input graph.
+		start : node
+			A node index in `G`.
+		end : node
+			A node index in `G`.
+		length : int
+			Random walk length
+
+		Returns
+		-------
+		np.ndarray[np.int64, ndim=2]
+			2D-Numpy array of random walks starting from [start, ..., end]
+		"""
+		cdef int rows = paths.shape[0]
+		cdef int length = paths.shape[1]
+
+		if length < 2:
+			raise RuntimeError('paths.shape[1] should be >= 2.')
+
+		cdef int new_length = 2 * length - 1
+		cdef int r, c
+		cdef node prev_node, curr_node, mp_index
+
+		meta_paths = np.zeros([rows, new_length], dtype=NODE_DTYPE)
+
+		for r in range(rows):
+			prev_node = paths[r, 0]
+
+			meta_paths[r, 0] = prev_node
+
+			for c in range(1, length):
+				curr_node = paths[r, c]
+				mp_index = _meta_path_to_index(class_map[prev_node], class_map[curr_node])
+				meta_paths[r, 2 * c - 1] = mp_index
+				meta_paths[r, 2 * c] = curr_node
+				prev_node = curr_node
+
+		return meta_paths
 
 	@staticmethod
 	def randomEdge(Graph G, uniformDistribution = False):
