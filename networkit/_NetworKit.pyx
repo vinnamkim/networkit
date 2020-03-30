@@ -5397,7 +5397,9 @@ cdef class GraphTools:
 		walk = [u]
 
 		for i in range(length - 1):
-			u = randomNeighbor(G._this, u)
+			if u != _none:
+				u = randomNeighbor(G._this, u)
+
 			walk.append(u)
 
 		return walk
@@ -5439,7 +5441,8 @@ cdef class GraphTools:
 			u = start + r
 			for c in range(length):
 				walks[r, c] = u
-				u = randomNeighbor(G._this, u)
+				if u != _none:
+					u = randomNeighbor(G._this, u)
 
 		return walks
 
@@ -5485,7 +5488,12 @@ cdef class GraphTools:
 
 			for c in range(1, length):
 				curr_node = paths[r, c]
-				mp_index = _meta_path_to_index(class_map[prev_node], class_map[curr_node])
+
+				if prev_node != _none and curr_node != _none:
+					mp_index = _meta_path_to_index(class_map[prev_node], class_map[curr_node])
+				else:
+					mp_index = _none
+
 				meta_paths[r, 2 * c - 1] = mp_index
 				meta_paths[r, 2 * c] = curr_node
 				prev_node = curr_node
