@@ -24,6 +24,9 @@ except:
 	warnings.warn("WARNING: module 'numpy' not found, some functionality will be restricted",
 			ReducedFunctionalityWarning)
 
+from cython.parallel import prange, threadid
+from libc.stdlib cimport abort, malloc, free
+
 cimport cython
 NODE_DTYPE = np.uint64
 ctypedef np.uint64_t NODE_DTYPE_t
@@ -102,7 +105,7 @@ def meta_path_to_index(int p, int n):
 
 	return _meta_path_to_index(a, b)
 
-cdef _meta_path_to_index(uint8_t a, uint8_t b):
+cdef index _meta_path_to_index(uint8_t a, uint8_t b) nogil:
 	cdef index i = 0
 	i = i | a
 	i = i << 8
@@ -5238,6 +5241,49 @@ cdef class Traversal:
 		finally:
 			del wrapper
 
+from libc.stdio cimport printf
+
+cdef void _sample_random_walks(_Graph G, index[:, :] walks, count nodes_size, count n_samples, count length) nogil:
+	cdef index s, c, node_index, row_index, curr_node
+
+	with cython.boundscheck(False):
+		for s in range(n_samples):
+			for node_index in range(nodes_size):
+				row_index = s * nodes_size + node_index
+				curr_node = node_index
+				for c in range(length):
+					walks[row_index, c] = curr_node
+					
+					if curr_node != _none:
+						curr_node = randomNeighbor(G, curr_node)
+
+
+cdef void _sample_meta_paths(_Graph G, index[:, :] meta_paths, const unsigned char[:] class_map, count nodes_size, count n_samples, count length) nogil:
+	cdef index s, c, node_index, row_index
+	cdef node prev_node, curr_node, mp_index
+
+	with cython.boundscheck(False):
+		for s in range(n_samples):
+			for node_index in range(nodes_size):
+				row_index = s * nodes_size + node_index
+				curr_node = node_index
+				for c in range(length):
+					meta_paths[row_index, 2 * c] = curr_node
+					if curr_node != _none:
+						curr_node = randomNeighbor(G, curr_node)
+
+				prev_node = meta_paths[row_index, 0]
+
+				for c in range(1, length):
+					curr_node = meta_paths[row_index, 2 * c]
+
+					if prev_node != _none and curr_node != _none:
+						mp_index = _meta_path_to_index(class_map[prev_node], class_map[curr_node])
+					else:
+						mp_index = _none
+
+					meta_paths[row_index, 2 * c - 1] = mp_index
+					prev_node = curr_node
 
 cdef extern from "<networkit/graph/GraphTools.hpp>" namespace "NetworKit::GraphTools":
 
@@ -5445,6 +5491,89 @@ cdef class GraphTools:
 					u = randomNeighbor(G._this, u)
 
 		return walks
+
+	@staticmethod
+	@cython.boundscheck(False)
+	@cython.wraparound(False)
+	def sampleRandomWalk(Graph G, int length, int n_samples, int n_threads):
+		"""
+		Returns a 2d array of random walks from node `start` to `end`.
+
+		Parameters
+		----------
+		G : networkit.Graph
+			The input graph.
+		length : int
+			Random walk length
+		n_threads : int
+			A number of threads
+
+		Returns
+		-------
+		np.ndarray[np.int64, ndim=2]
+			2D-Numpy array of random walks starting from [start, ..., end]
+		"""
+		cdef count nodes_size = G.numberOfNodes()
+		cdef count rows = nodes_size * n_threads * n_samples
+		cdef index t, tid
+		np_walks = np.zeros([rows, length], dtype=NODE_DTYPE, order='C')
+		cdef index[:, :] c_walks = np_walks
+
+		if length < 1 or n_threads < 1:
+			raise RuntimeError("Parameter length and n_threads should be >= 1.")
+
+		for t in prange(n_threads, nogil=True, num_threads=n_threads):
+			tid = <index>threadid()
+			_sample_random_walks(G._this,
+				c_walks[tid * nodes_size * n_samples:(tid + 1) * nodes_size * n_samples, :],
+				nodes_size,
+				n_samples,
+				length)
+
+		return np_walks
+
+	@staticmethod
+	@cython.boundscheck(False)
+	@cython.wraparound(False)
+	def sampleMetaPaths(Graph G, bytes class_map, int length, int n_samples, int n_threads):
+		"""
+		Returns a 2d array of random walks from node `start` to `end`.
+
+		Parameters
+		----------
+		G : networkit.Graph
+			The input graph.
+		length : int
+			Random walk length
+		n_threads : int
+			A number of threads
+
+		Returns
+		-------
+		np.ndarray[np.int64, ndim=2]
+			2D-Numpy array of random walks starting from [start, ..., end]
+		"""
+		cdef count nodes_size = G.numberOfNodes()
+		cdef count rows = nodes_size * n_threads * n_samples
+		cdef index t, tid
+		cdef const unsigned char[:] c_class_map = class_map
+
+		if length < 1 or n_threads < 1:
+			raise RuntimeError("Parameter length and n_threads should be >= 1.")
+
+		np_meta_paths = np.zeros([rows, 2 * length - 1], dtype=NODE_DTYPE, order='C')
+		cdef index[:, :] meta_paths = np_meta_paths
+
+		for t in prange(n_threads, nogil=True):
+			tid = <index>threadid()
+			_sample_meta_paths(G._this,
+				meta_paths[tid * nodes_size * n_samples:(tid + 1) * nodes_size * n_samples, :],
+				c_class_map,
+				nodes_size,
+				n_samples,
+				length)
+
+		return np_meta_paths
 
 	@staticmethod
 	@cython.boundscheck(False)
